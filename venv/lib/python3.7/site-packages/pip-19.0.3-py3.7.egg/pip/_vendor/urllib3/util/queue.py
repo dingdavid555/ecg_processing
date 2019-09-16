@@ -4,7 +4,7 @@ from ..packages.six.moves import queue
 
 if six.PY2:
     # Queue is imported for side effects on MS Windows. See issue #229.
-    import Queue as _unused_module_Queue  # noqa: F401
+    pass
 
 
 class LifoQueue(queue.Queue):
