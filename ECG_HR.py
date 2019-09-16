@@ -124,7 +124,6 @@ class EdfFile(object):
 
 
 class PaikroAlgorithm(object):
-
     def __init__(self, filter_stage, low_f, high_f):
         print("\n" + "------------------------------- Running Paikro Algorithm ----------------------------------")
 
@@ -163,13 +162,21 @@ class PaikroAlgorithm(object):
         self.max_hr = 0
 
         # Runs methods
+
+        self.ecg_filtered = self.bandpass_filter(self.ecg_raw,
+                                                 lowcut=self.low_f, highcut=self.high_f, filter_order=2,
+                                                 signal_freq=self.signal_frequency)
+        self.filter_data()
         self.differentiate_ecg()
         self.square_data()
         self.detect_peaks()
         self.process_rr_hr()
-        self.process_epochs()
+        # self.process_epochs()
 
     @staticmethod
+    def filter_data():
+        return 0
+
     def bandpass_filter(dataset, lowcut, highcut, signal_freq, filter_order):
         """Method that creates bandpass filter to ECG data."""
 
@@ -177,7 +184,7 @@ class PaikroAlgorithm(object):
         nyquist_freq = 0.5 * signal_freq
         low = lowcut / nyquist_freq
         high = highcut / nyquist_freq
-        b, a = butter(filter_order, [low, high], btype="band")
+        b, a = butter(filter_order, [low, high], btype="bandpass")
         y = lfilter(b, a, dataset)
 
         return y
@@ -187,13 +194,7 @@ class PaikroAlgorithm(object):
 
         if self.filter_stage == "raw":
             t0_filt = datetime.now()
-
-            ecg_data = self.ecg_raw
-
             print("\n" + "Filtering raw data (8-18Hz, 2nd order bandpass filter).")
-            self.ecg_filtered = self.bandpass_filter(ecg_data,
-                                                     lowcut=self.low_f, highcut=self.high_f, filter_order=2,
-                                                     signal_freq=self.signal_frequency)
 
             t1_filt = datetime.now()
 
@@ -203,7 +204,7 @@ class PaikroAlgorithm(object):
 
         print("\n" + "Differentiating raw ECG signal...")
 
-        self.ecg_deriv = np.ediff1d(self.ecg_raw)
+        self.ecg_deriv = np.ediff1d(self.ecg_filtered)
 
         t1_diff = datetime.now()
 
@@ -215,14 +216,8 @@ class PaikroAlgorithm(object):
         if self.filter_stage == "differentiated":
             t0_filt = datetime.now()
 
-            ecg_data = self.ecg_deriv
-
             print("\n" + "Filtering differentiated data ({}-{}Hz, 2rd order bandpass filter).".
                   format(self.low_f, self.high_f))
-
-            self.ecg_filtered = self.bandpass_filter(ecg_data,
-                                                     lowcut=self.low_f, highcut=self.high_f, filter_order=2,
-                                                     signal_freq=self.signal_frequency)
 
             t1_filt = datetime.now()
 
@@ -245,13 +240,15 @@ class PaikroAlgorithm(object):
         print("\n" + "Detecting QRS peaks...")
 
         # Filtering differentiated data first
+
+        # TODO: make rolling average functionality
         for i in range(len(self.ecg_deriv)):
-            if self.ecg_deriv[i] >= 200:
-                self.ecg_deriv[i] = 200
+            if self.ecg_deriv[i] >= 40:
+                self.ecg_deriv[i] = 40
             else:
                 self.ecg_deriv[i] = 0
 
-        self.peak_indices = peakutils.indexes(self.ecg_deriv, thres=0.3, min_dist=5)
+        self.peak_indices = peakutils.indexes(self.ecg_deriv, thres=0.3, min_dist=50)
         self.peak_values = self.ecg_squared[self.peak_indices]
 
         t1_peak = datetime.now()
@@ -283,7 +280,7 @@ class PaikroAlgorithm(object):
 
         print("RR-interval HR processed. Took {} seconds.".format(round((t1_rr - t0_rr).seconds), 2))
 
-    def process_epochs(self):
+    '''def process_epochs(self):
         """Calculates average HR in each epoch using window length and number of beats in that window."""
 
         t0_epoch = datetime.now()
@@ -345,6 +342,7 @@ class PaikroAlgorithm(object):
 
         self.max_hr = max(self.epoch_hr)
         self.min_hr = min(self.epoch_hr)
+        '''
 
     def plot_data(self):
         """Plot with subplots that share x-axis. Plot 1: raw ECG with approximate peak locations marked.
@@ -393,9 +391,6 @@ class PaikroAlgorithm(object):
 # ------------------------------------------------- RUNNING SCRIPT ---------------------------------------------------
 # --------------------------------------------------------------------------------------------------------------------
 input_file = "O:\\Data\\ReMiNDD\\Raw data\\Bittium\\OND06_SBH_1039_01_SE01_GABL_BF_02.EDF"
-# input_file = "/Users/kyleweber/Desktop/Test Data/ECG Files/Kyle_BF.EDF"
-
-#if __name__ == "__main__":
 
 t0 = datetime.now()
 
@@ -409,4 +404,7 @@ t1 = datetime.now()
 print("\n" + "--------------------------------------------------------------------------------------------------| ")
 print("Program complete. Run time = {} seconds.".format(round((t1-t0).seconds), 2))
 
-paikro_data.plot_data()
+plt.plot([k for k in range(len(paikro_data.ecg_filtered))], paikro_data.ecg_filtered)
+plt.plot([j for j in range(len(paikro_data.ecg_deriv))], paikro_data.ecg_deriv)
+plt.show()
+
