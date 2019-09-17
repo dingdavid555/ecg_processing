@@ -122,23 +122,21 @@ class EdfFile(object):
 # ------------------------------------------------- PAIKRO SCRIPT ----------------------------------------------------
 # --------------------------------------------------------------------------------------------------------------------
 
-
 class PaikroAlgorithm(object):
-    def __init__(self, filter_stage, low_f, high_f):
+    def __init__(self, edf_input, low_f, high_f):
         print("\n" + "------------------------------- Running Paikro Algorithm ----------------------------------")
 
-        self.epoch_len = edf_file.epoch_len
-        self.filter_stage = filter_stage
+        self.epoch_len = edf_input.epoch_len
         self.low_f = low_f
         self.high_f = high_f
 
-        self.file_id = edf_file.file_id
-        self.signal_frequency = edf_file.signal_frequency
-        self.starttime = edf_file.starttime
-        self.collection_duration = edf_file.collection_duration
+        self.file_id = edf_input.file_id
+        self.signal_frequency = edf_input.signal_frequency
+        self.starttime = edf_input.starttime
+        self.collection_duration = edf_input.collection_duration
 
-        self.ecg_raw = edf_file.ecg_raw
-        self.raw_timestamps = edf_file.raw_timestamps
+        self.ecg_raw = edf_input.ecg_raw
+        self.raw_timestamps = edf_input.raw_timestamps
 
         self.ecg_deriv = None
         self.ecg_filtered = None
@@ -163,23 +161,17 @@ class PaikroAlgorithm(object):
 
         # Runs methods
 
-        self.ecg_filtered = self.bandpass_filter(self.ecg_raw,
-                                                 lowcut=self.low_f, highcut=self.high_f, filter_order=2,
+        '''self.ecg_filtered = self.bandpass_filter(self.ecg_raw, lowcut=self.low_f, highcut=self.high_f, filter_order=2,
                                                  signal_freq=self.signal_frequency)
-        self.filter_data()
         self.differentiate_ecg()
         self.square_data()
         self.detect_peaks()
         self.process_rr_hr()
-        # self.process_epochs()
+        # self.process_epochs()'''
 
     @staticmethod
-    def filter_data():
-        return 0
-
     def bandpass_filter(dataset, lowcut, highcut, signal_freq, filter_order):
         """Method that creates bandpass filter to ECG data."""
-
         # Filter characteristics
         nyquist_freq = 0.5 * signal_freq
         low = lowcut / nyquist_freq
@@ -191,65 +183,53 @@ class PaikroAlgorithm(object):
 
     def differentiate_ecg(self):
         """Uses numpy 'ediff1d' function to differentiate raw data."""
-
-        if self.filter_stage == "raw":
-            t0_filt = datetime.now()
-            print("\n" + "Filtering raw data (8-18Hz, 2nd order bandpass filter).")
-
-            t1_filt = datetime.now()
-
-            print("Data has been filtered. Took {} seconds.".format(round((t1_filt - t0_filt).seconds), 2))
-
         t0_diff = datetime.now()
-
         print("\n" + "Differentiating raw ECG signal...")
-
         self.ecg_deriv = np.ediff1d(self.ecg_filtered)
-
         t1_diff = datetime.now()
-
         print("ECG signal differentiated. Took {} seconds.".format(round((t1_diff-t0_diff).seconds), 2))
 
-    def square_data(self):
-        """Squares filtered + differentiated data AND runs filtering method."""
-
+    """def square_data(self):
+        # Squares filtered + differentiated data AND runs filtering method.
         if self.filter_stage == "differentiated":
             t0_filt = datetime.now()
-
             print("\n" + "Filtering differentiated data ({}-{}Hz, 2rd order bandpass filter).".
                   format(self.low_f, self.high_f))
-
             t1_filt = datetime.now()
-
             print("Data has been filtered. Took {} seconds.".format(round((t1_filt-t0_filt).seconds), 2))
-
         t0_square = datetime.now()
-
         print("\n" + "Cubing data...")
         self.ecg_squared = self.ecg_filtered ** 3
-
         t1_square = datetime.now()
         print("Data has been squared. Took {} seconds.".format(round((t1_square-t0_square).seconds), 2))
+    """
 
     def detect_peaks(self):
         """Uses PeakUtils package to detect peaks in squared ECG signal. Handles spikes by reducing their value to
            prevent false negatives on other peaks due to thresholding system."""
 
         t0_peak = datetime.now()
-
         print("\n" + "Detecting QRS peaks...")
-
         # Filtering differentiated data first
-
         # TODO: make rolling average functionality
+        self.ecg_preprocess_1 = [0 for i in range(len(self.ecg_deriv))]
+
         for i in range(len(self.ecg_deriv)):
             if self.ecg_deriv[i] >= 40:
-                self.ecg_deriv[i] = 40
+                self.ecg_preprocess_1[i] = 40
             else:
-                self.ecg_deriv[i] = 0
+                self.ecg_preprocess_1[i] = 0
 
-        self.peak_indices = peakutils.indexes(self.ecg_deriv, thres=0.3, min_dist=50)
+        self.ecg_preprocess_1 = np.asarray(self.ecg_preprocess_1)
+        self.peak_indices = peakutils.indexes(self.ecg_preprocess_1, thres=0.3, min_dist=50)
+
+        for i in range(len(self.peak_indices)):
+            self.peak_indices[i] = int(self.peak_indices[i])
         self.peak_values = self.ecg_squared[self.peak_indices]
+
+        self.ecg_preprocess_2 = [0 for i in range(len(self.ecg_deriv))]
+        for i in range(len(self.peak_indices)):
+            self.ecg_preprocess_2[self.peak_indices[i]] = 15
 
         t1_peak = datetime.now()
         print("QRS peaks detected. Found {} peaks. Took {} seconds.".format(len(self.peak_indices),
@@ -279,70 +259,6 @@ class PaikroAlgorithm(object):
         t1_rr = datetime.now()
 
         print("RR-interval HR processed. Took {} seconds.".format(round((t1_rr - t0_rr).seconds), 2))
-
-    '''def process_epochs(self):
-        """Calculates average HR in each epoch using window length and number of beats in that window."""
-
-        t0_epoch = datetime.now()
-
-        print("\n" + "Epoching HR data...")
-
-        # Creates list of timestamps corresponding to starttime + epoch_len for each epoch
-        for i in range(0, int(self.collection_duration / self.epoch_len)):
-            timestamp = self.beat_timestamps[0] + timedelta(seconds=i * self.epoch_len)
-            self.epoch_timestamps.append(timestamp)
-
-        # Loops through epoch start timestamps
-        for epoch_start, epoch_end in zip(self.epoch_timestamps[:], self.epoch_timestamps[1:]):
-
-            # Tally for number of beats in current epoch
-            epoch_beat_tally = 0
-
-            # Loops through heartrate_timestamps and counts beats that fall within current epoch
-            for beat_index, beat_stamp in enumerate(self.beat_timestamps):
-
-                if epoch_start <= beat_stamp < epoch_end:
-                    epoch_beat_tally += 1
-
-                # Gets timestamps of first and last beats in epoch
-                if beat_stamp >= epoch_end:
-                    self.epoch_start_stamp.append(self.beat_timestamps[beat_index - epoch_beat_tally])
-
-                    self.epoch_end_stamp.append(self.beat_timestamps[beat_index])
-
-                    break
-
-            self.epoch_beat_tally.append(epoch_beat_tally)
-
-        for start, stop, tally in zip(self.epoch_start_stamp, self.epoch_end_stamp, self.epoch_beat_tally):
-            duration = (stop-start).seconds
-
-            self.epoch_hr.append(round((tally - 1) * 60 / duration, 1))
-
-        # Descriptive values from epoch_hr
-        # Calculates average HR (non-weighted) from epoch_hr for values within "valid" range
-        hr_sum_tally = 0
-        hr_valid_epoch_tally = 0
-
-        for hr in self.epoch_hr:
-            if 40 < hr < 180:
-                hr_sum_tally += hr
-                hr_valid_epoch_tally += 1
-
-        self.avg_hr = round(hr_sum_tally / hr_valid_epoch_tally, 1)
-
-        t1_epoch = datetime.now()
-
-        # Prints epoch HR data summary
-        print("Epoched HR calculated. Took {} seconds.".format(round((t1_epoch - t0_epoch).seconds), 2))
-        print("     Found {} epochs of length {} seconds.".format(len(self.epoch_hr), self.epoch_len))
-
-        print("     {} heart beats detected.".format(len(self.peak_indices)))
-        print("     Average heart rate: ~ {} bpm".format(self.avg_hr))
-
-        self.max_hr = max(self.epoch_hr)
-        self.min_hr = min(self.epoch_hr)
-        '''
 
     def plot_data(self):
         """Plot with subplots that share x-axis. Plot 1: raw ECG with approximate peak locations marked.
@@ -390,15 +306,12 @@ class PaikroAlgorithm(object):
 # --------------------------------------------------------------------------------------------------------------------
 # ------------------------------------------------- RUNNING SCRIPT ---------------------------------------------------
 # --------------------------------------------------------------------------------------------------------------------
-input_file = "O:\\Data\\ReMiNDD\\Raw data\\Bittium\\OND06_SBH_1039_01_SE01_GABL_BF_02.EDF"
+input_file = "O:\Data\ReMiNDD\Raw data\Bittium\OND06_SBH_9522_01_SE01_GABL_BF.EDF"
 
 t0 = datetime.now()
 
 edf_file = EdfFile(file=input_file, crop=[60, 120], epoch_len=15)
-paikro_data = PaikroAlgorithm(filter_stage="differentiated", low_f=8, high_f=18)
-# paikro_data_2 = PaikroAlgorithm(filter_stage="differentiated", low_f=8, high_f=18)
-
-# comp = Compare(plot=True)
+paikro_data = PaikroAlgorithm(edf_file, 3, 45)
 
 t1 = datetime.now()
 print("\n" + "--------------------------------------------------------------------------------------------------| ")
